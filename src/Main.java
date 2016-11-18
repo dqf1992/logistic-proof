@@ -3,11 +3,25 @@ import java.util.*;
 public class Main {
 
     public static void main(String[] args) {
-        String str = "( ((~Parent(x,y)) & Ancestor(y,z)) | (Ancestor(z,x) & Ancestor(x,z)) )";
+        String str = "( (A(x) & (B(x) | C(x))) | D(x) )";
         str = str.replaceAll("\\s+","");
         Map<String, Set<String>> map = new HashMap<>();
-        Set<String> set = parseStringToCNF(str, "");
-        System.out.println(set);
+        HashSet<String> set = parseStringToCNF(str, "");
+        for(String cnf: set) {
+            String[] literals = cnf.split("\\|");
+            System.out.println(literals);
+            for(String literal: literals) {
+//                System.out.println(literal);
+                String key = literal.substring(0, literal.indexOf('('));
+                if(!map.containsKey(key)) {
+                    map.put(key, new HashSet<String>());
+                }
+                Set<String> cnfSet = map.get(key);
+                cnfSet.add(cnf);
+                map.put(key, cnfSet);
+            }
+        }
+        System.out.println(map);
     }
 
     static public HashSet<String> parseStringToCNF(String str, String prefix) {
@@ -18,7 +32,7 @@ public class Main {
         }
         if(str.charAt(1) == '~') {
             prefix = prefix.equals("")? "~": "";
-            set.add(parseLiteral(str.substring(2, str.length()-1), prefix));
+            set.addAll(parseStringToCNF(str.substring(2, str.length()-1), prefix));
             return set;
         }
         System.out.println(str);
