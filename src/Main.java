@@ -3,87 +3,101 @@ import java.util.*;
 public class Main {
 
     public static void main(String[] args) {
-        HashMap<String, Set<String>> map = new HashMap<>();
-        String str = "( ( ~(Parent(x,y) | Ancestor(y,z))) & Ancestor(x,z))";
+        String str = "( ((~Parent(x,y)) & Ancestor(y,z)) | (Ancestor(z,x) & Ancestor(x,z)) )";
         str = str.replaceAll("\\s+","");
-        parseSentence(str,"",map);
-        System.out.println(map);
+        Map<String, Set<String>> map = new HashMap<>();
+        Set<String> set = parseStringToCNF(str, "");
+        System.out.println(set);
     }
 
-    static public void parseSentence(String str, String prefix, HashMap<String, Set<String>> map) {
-        System.out.println(str);
+    static public HashSet<String> parseStringToCNF(String str, String prefix) {
+        HashSet<String> set = new HashSet<>();
         if(str.charAt(0) != '(') {
-            parseSimpleSentence(str, prefix, map);
-            return;
+            set.add(parseLiteral(str, prefix));
+            return set;
         }
-        char[] charArr = str.toCharArray();
-        if(charArr[1] == '~') {
+        if(str.charAt(1) == '~') {
             prefix = prefix.equals("")? "~": "";
-            parseSentence(str.substring(2,charArr.length-1), prefix, map);
-            return;
-        } else if(charArr[1] != '(') {
-            boolean isClauseA = (str.indexOf('&') != -1) && prefix.equals("");
-            boolean isClauseB = (str.indexOf('|') != -1) && prefix.equals("~");
-            boolean isImplication = str.indexOf('=') != -1;
-            int idx = str.indexOf('&') == -1 ? str.indexOf('|'): str.indexOf('&');
-            if(isImplication) {
-                String newStr = "((~" + str.substring(1,str.indexOf('=')) + ")|" + str.substring(str.indexOf('>')+1);
-                System.out.println("The new string is:" + newStr);
-                parseSentence(newStr, prefix, map);
-            } else if(isClauseA || isClauseB) {
-                parseSimpleSentence(str.substring(1, idx), prefix, map);
-                parseSimpleSentence(str.substring(idx + 1, charArr.length-1), prefix, map);
-            } else {
-                parseSimpleSentence(str.substring(1, idx), prefix, map, str.substring(1,charArr.length-1));
-                parseSimpleSentence(str.substring(idx + 1, charArr.length - 1), prefix, map, str.substring(1, charArr.length-1));
-            }
-            return;
+            set.add(parseLiteral(str.substring(2, str.length()-1), prefix));
+            return set;
         }
+        System.out.println(str);
+//        if(str.charAt(1) != '(') {
+//            int idx = nextLevelOperatorIdx(str);
+//            boolean isClauseA = str.charAt(idx) == '&' && prefix.equals("");
+//            boolean isClauseB = str.charAt(idx) == '|' && prefix.equals("~");
+//            boolean isImplication = str.charAt(idx) == '=';
+//            if (isImplication) {
+//                String newStr = "((~" + str.substring(1, str.indexOf('=')) + ")|" + str.substring(str.indexOf('>') + 1);
+////                System.out.println("The new string is:" + newStr);
+//                set.addAll(parseStringToCNF(newStr, prefix));
+//            } else if (isClauseA || isClauseB) {
+//                set.add(parseLiteral(str.substring(1, idx), prefix));
+//                set.addAll(parseStringToCNF(str.substring(idx + 1, str.length() - 1), prefix));
+//            } else {
+//                String literal = parseLiteral(str.substring(1, idx), prefix);
+//                HashSet<String> cnfSet = parseStringToCNF(str.substring(idx + 1, str.length() - 1), prefix);
+//                for (String cnf : cnfSet) {
+//                    set.add(cnf + '|' + literal);
+//                }
+//            }
+//            return set;
+//        }
+        // remove the outermost brackets
+        str = str.substring(1,str.length()-1);
+        int idx = nextLevelOperatorIdx(str);
+        assert(str.charAt(idx) == '&' || str.charAt(idx) == '|' || str.charAt(idx) == '=');
+        boolean isClauseA = str.charAt(idx) == '&' && prefix.equals("");
+        boolean isClauseB = str.charAt(idx) == '|' && prefix.equals("~");
+        boolean isImplication = str.charAt(idx) == '=';
+        if(isImplication) {
+            HashSet<String> cnfSet2 = parseStringToCNF(str.substring(idx+2, str.length()), prefix);
+            prefix = prefix.equals("")? "~": "";
+            HashSet<String> cnfSet1 = parseStringToCNF(str.substring(0,idx), prefix);
+            for(String cnf1: cnfSet1) {
+                for(String cnf2: cnfSet2) {
+                    set.add(cnf1 + '|' + cnf2);
+                }
+            }
+        } else if(str.charAt(idx) == '&') {
+            set.addAll(parseStringToCNF(str.substring(0, idx), prefix));
+            set.addAll(parseStringToCNF(str.substring(idx+1, str.length()), prefix));
+        } else if(str.charAt(idx) == '|'){
+            HashSet<String> cnfSet1 = parseStringToCNF(str.substring(0, idx), prefix);
+            HashSet<String> cnfSet2 = parseStringToCNF(str.substring(idx+1, str.length()), prefix);
+            for(String cnf1:cnfSet1) {
+                for(String cnf2:cnfSet2) {
+                    set.add(cnf1 + '|' + cnf2);
+                }
+            }
+        } else {
+            System.out.println("Illegal operator!!");
+        }
+        return set;
+    }
+
+    static public String parseLiteral(String str, String prefix) {
+        assert (str.indexOf(')') == str.length() - 1);
+        assert (str.indexOf('(') != -1);
+        System.out.println(str);
+        return prefix + str;
+    }
+
+    static public int nextLevelOperatorIdx(String str) {
+        //do not include the outermost brackets
         int cnt = 0;
-        for(int i=1; i<charArr.length-1; i++) {
-            if(charArr[i] != '(' && charArr[i] != ')') continue;
-            if(charArr[i] == '(') {
+        for(int i=0; i<str.length(); i++) {
+            if(str.charAt(i) != '(' && str.charAt(i) != ')') continue;
+            if(str.charAt(i) == '(') {
                 cnt ++;
-            } else if(charArr[i] == ')') {
+            } else if(str.charAt(i) == ')') {
                 cnt --;
             }
             if(cnt == 0) {
-                assert(charArr[i+1] == '&' || charArr[i+1] == '|' || charArr[i+1] == '=');
-                if(charArr[i+1] == '=') {
-                    String newStr = "((~" + str.substring(1,str.indexOf('=')) + ")|" + str.substring(str.indexOf('>')+1);
-                    System.out.println("The new string is:" + newStr);
-                    parseSentence(newStr, prefix, map);
-                } else {
-                    parseSentence(str.substring(1, i + 1), prefix, map);
-                    parseSentence(str.substring(i + 2, charArr.length - 1), prefix, map);
-                }
-                return;
+                System.out.println("Next level Operator is " + str.charAt(i+1));
+                return i + 1;
             }
         }
+        return -1;
     }
-
-    static public void parseSimpleSentence(String str, String prefix, HashMap<String, Set<String>> map) {
-        assert(str.indexOf(')') == str.length()-1);
-        assert(str.indexOf('(') != -1);
-        String predicate = prefix + str.substring(0, str.indexOf('('));
-        if(!map.containsKey(predicate)) {
-            map.put(predicate, new HashSet<String>());
-        }
-        Set<String> set = map.get(predicate);
-        set.add(prefix + str);
-        map.put(predicate, set);
-    }
-
-    static public void parseSimpleSentence(String str, String prefix, HashMap<String, Set<String>> map, String clause) {
-        assert (str.indexOf(')') == str.length() - 1);
-        assert (str.indexOf('(') != -1);
-        String predicate = prefix + str.substring(0, str.indexOf('('));
-        if (!map.containsKey(predicate)) {
-            map.put(predicate, new HashSet<String>());
-        }
-        Set<String> set = map.get(predicate);
-        set.add(prefix + '(' + clause + ')');
-        map.put(predicate, set);
-    }
-
 }
