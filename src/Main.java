@@ -22,27 +22,6 @@ public class Main {
             return set;
         }
         System.out.println(str);
-//        if(str.charAt(1) != '(') {
-//            int idx = nextLevelOperatorIdx(str);
-//            boolean isClauseA = str.charAt(idx) == '&' && prefix.equals("");
-//            boolean isClauseB = str.charAt(idx) == '|' && prefix.equals("~");
-//            boolean isImplication = str.charAt(idx) == '=';
-//            if (isImplication) {
-//                String newStr = "((~" + str.substring(1, str.indexOf('=')) + ")|" + str.substring(str.indexOf('>') + 1);
-////                System.out.println("The new string is:" + newStr);
-//                set.addAll(parseStringToCNF(newStr, prefix));
-//            } else if (isClauseA || isClauseB) {
-//                set.add(parseLiteral(str.substring(1, idx), prefix));
-//                set.addAll(parseStringToCNF(str.substring(idx + 1, str.length() - 1), prefix));
-//            } else {
-//                String literal = parseLiteral(str.substring(1, idx), prefix);
-//                HashSet<String> cnfSet = parseStringToCNF(str.substring(idx + 1, str.length() - 1), prefix);
-//                for (String cnf : cnfSet) {
-//                    set.add(cnf + '|' + literal);
-//                }
-//            }
-//            return set;
-//        }
         // remove the outermost brackets
         str = str.substring(1,str.length()-1);
         int idx = nextLevelOperatorIdx(str);
