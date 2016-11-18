@@ -22,21 +22,22 @@ public class Main {
             parseSentence(str.substring(2,charArr.length-1), prefix, map);
             return;
         } else if(charArr[1] != '(') {
-            int idx = str.indexOf('|');
-            if(idx != -1) {
-//                parseSentence(str.substring(1, idx), prefix, map);
-//                parseSentence(str.substring(idx + 1, charArr.length-1), prefix, map);
-//                return;
-                parseSimpleSentence(str.substring(1, idx), prefix, map, str);
-                parseSimpleSentence(str.substring(idx+1, charArr.length-1), prefix, map, str);
-                return;
-            }
-            idx = str.indexOf('&');
-            if(idx != -1) {
+            boolean isClauseA = (str.indexOf('&') != -1) && prefix.equals("");
+            boolean isClauseB = (str.indexOf('|') != -1) && prefix.equals("~");
+            boolean isImplication = str.indexOf('=') != -1;
+            int idx = str.indexOf('&') == -1 ? str.indexOf('|'): str.indexOf('&');
+            if(isImplication) {
+                String newStr = "((~" + str.substring(1,str.indexOf('=')) + ")|" + str.substring(str.indexOf('>')+1);
+                System.out.println("The new string is:" + newStr);
+                parseSentence(newStr, prefix, map);
+            } else if(isClauseA || isClauseB) {
                 parseSimpleSentence(str.substring(1, idx), prefix, map);
                 parseSimpleSentence(str.substring(idx + 1, charArr.length-1), prefix, map);
-                return;
+            } else {
+                parseSimpleSentence(str.substring(1, idx), prefix, map, str.substring(1,charArr.length-1));
+                parseSimpleSentence(str.substring(idx + 1, charArr.length - 1), prefix, map, str.substring(1, charArr.length-1));
             }
+            return;
         }
         int cnt = 0;
         for(int i=1; i<charArr.length-1; i++) {
@@ -47,9 +48,15 @@ public class Main {
                 cnt --;
             }
             if(cnt == 0) {
-                assert(charArr[i+1] == '&' || charArr[i+1] == '|');
-                parseSentence(str.substring(1,i+1), prefix, map);
-                parseSentence(str.substring(i+2,charArr.length-1), prefix, map);
+                assert(charArr[i+1] == '&' || charArr[i+1] == '|' || charArr[i+1] == '=');
+                if(charArr[i+1] == '=') {
+                    String newStr = "((~" + str.substring(1,str.indexOf('=')) + ")|" + str.substring(str.indexOf('>')+1);
+                    System.out.println("The new string is:" + newStr);
+                    parseSentence(newStr, prefix, map);
+                } else {
+                    parseSentence(str.substring(1, i + 1), prefix, map);
+                    parseSentence(str.substring(i + 2, charArr.length - 1), prefix, map);
+                }
                 return;
             }
         }
@@ -58,7 +65,7 @@ public class Main {
     static public void parseSimpleSentence(String str, String prefix, HashMap<String, Set<String>> map) {
         assert(str.indexOf(')') == str.length()-1);
         assert(str.indexOf('(') != -1);
-        String predicate = str.substring(0, str.indexOf('('));
+        String predicate = prefix + str.substring(0, str.indexOf('('));
         if(!map.containsKey(predicate)) {
             map.put(predicate, new HashSet<String>());
         }
@@ -70,12 +77,12 @@ public class Main {
     static public void parseSimpleSentence(String str, String prefix, HashMap<String, Set<String>> map, String clause) {
         assert (str.indexOf(')') == str.length() - 1);
         assert (str.indexOf('(') != -1);
-        String predicate = str.substring(0, str.indexOf('('));
+        String predicate = prefix + str.substring(0, str.indexOf('('));
         if (!map.containsKey(predicate)) {
             map.put(predicate, new HashSet<String>());
         }
         Set<String> set = map.get(predicate);
-        set.add(prefix + clause);
+        set.add(prefix + '(' + clause + ')');
         map.put(predicate, set);
     }
 
