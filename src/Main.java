@@ -7,12 +7,7 @@ public class Main {
     public static void main(String[] args) throws FileNotFoundException, UnsupportedEncodingException {
         String fileToRead = "input.txt";
         String fileToWrite = "output.txt";
-        if(args.length > 0) {
-            fileToRead = args[0];
-            if(args.length > 1) {
-                fileToWrite = args[1];
-            }
-        }
+
         Scanner scan = new Scanner(new BufferedReader(new FileReader(fileToRead)));
         int NQ = Integer.parseInt(scan.nextLine());
         System.out.println(NQ);
@@ -69,78 +64,222 @@ public class Main {
     }
 
      public static boolean unification(Map<String, HashSet<String>> map, String query) {
-        Deque<String> toResolveLiterals = new LinkedList<>();
-        toResolveLiterals.addLast(reverseLiteral(query));
-        while(!toResolveLiterals.isEmpty()) {
-            String literal = toResolveLiterals.pollFirst();
+        Deque<String> toResolve = new LinkedList<>();
+        Set<String> explored = new HashSet<>();
+        explored.add(reverseLiteral(query));
+        toResolve.addLast(reverseLiteral(query));
+        while(!toResolve.isEmpty()) {
+            String toResolveClause = toResolve.pollFirst();
+            String[] literals = toResolveClause.split("\\|");
             //reverse literal to resolve
-            String revLiteral = reverseLiteral(literal);
-            //can't find contradictory
-            String prefix = "";
-            String key = getPredicatesFromClause(revLiteral)[0];
-
-            if(!map.containsKey(key)) return false;
-            HashSet<String> oldClauses = map.get(key);
-            HashSet<String> newClauses = new HashSet<>();
-
-            for(String clause: oldClauses) {
-                String newClause = unifyTwoClauses(literal, clause);
-                if(newClause.isEmpty()) return true;
-                if(isLiteral(newClause)) toResolveLiterals.add(newClause);
-                newClauses.add(newClause);
+            for(int i=0; i<literals.length; i++) {
+                String revLiteral = reverseLiteral(literals[i]);
+                String key = getPredicatesFromClause(revLiteral)[0];
+                if(!map.containsKey(key)) continue;
+                HashSet<String> oldClauses = map.get(key);
+                HashSet<String> newClauses = new HashSet<>();
+                for(String clause: oldClauses) {
+                    // proof by contradiction
+                    if(isContradiction(toResolveClause,clause)) {
+                        System.out.println("Found contradiction: " + toResolveClause + " " + clause);
+                        return true;
+                    }
+                    String newClause = unifyTwoClauses(toResolveClause, clause,
+                            getPredicateWordsFromClause(revLiteral)[0]);
+                    // this is a dead end, should look at other way
+                    if(newClause.equals("") || explored.contains(newClause)) {
+                        continue;
+                    }
+                    toResolve.add(newClause);
+                    explored.add(newClause);
+                    newClauses.add(newClause);
+                }
+                if(literals.length == 1) map.remove(key);
+                addToKnowledgeBase(map, newClauses);
             }
-            map.remove(key);
-            addToKnowledgeBase(map, newClauses);
-//            System.out.println("Resolved : " + literal);
-//            System.out.println(map);
         }
+        //can't proof wrong
         return false;
     }
 
-    private static String unifyTwoClauses(String literal, String clause) {
-        String predicate = getPredicateWordsFromClause(literal)[0];
-        String[] literals = clause.split("\\|");
-        StringBuilder sb = new StringBuilder();
-        Map<String, String> substitutions = new HashMap<>();
-        for (String literal2 : literals) {
-            String predicate2 = getPredicateWordsFromClause(literal2)[0];
-            if (predicate2.equals(predicate)) {
-                String[] paras = getParameters(literal);
-                String[] para2s = getParameters(literal2);
-                for (int i = 0; i < paras.length; i++) {
-                    if (!paras[i].equals(para2s[i])) {
-                        assert paras[i].length() == 1 || para2s[i].length() == 1 : "can't unify with two constant";
-                        if (paras[i].length() == 1) {
-                            substitutions.put(paras[i], para2s[i]);
-                        }
-                    }
-                }
-                break;
+    private static boolean isContradiction(String clause1, String clause2) {
+        if(!isLiteral(clause2) || !isLiteral(clause1)) return false;
+        String[] para1s = getParametersFromLiteral(clause1);
+        String[] para2s = getParametersFromLiteral(clause2);
+        for(int i=0; i<para1s.length; i++) {
+            if(!para1s[i].equals(para2s[i]) && para1s[i].length() != 1 && para2s[i].length() != 1) {
+                return false;
             }
         }
-        for (String literal2: literals) {
-            if(getPredicateWordsFromClause(literal)[0].equals(getPredicateWordsFromClause(literal2)[0])) continue;
-            String[] paras = getParameters(literal2);
+        return true;
+    }
+
+    private static String unifyTwoClauses(String clause1, String clause2, String predicateWord) {
+//        System.out.println("Before: " + clause1 + " " + clause2);
+        String[] clauses = standardizeClauses(clause1, clause2);
+//        System.out.println("After: " + clauses[0] + " " + clauses[1]);
+        String[] literal1s = clauses[0].split("\\|");
+        String[] literal2s = clauses[1].split("\\|");
+        StringBuilder sb = new StringBuilder();
+        Map<String, String> subsDict = new HashMap<>();
+        String literal1 = null;
+        String literal2 = null;
+        for(String literal: literal1s) {
+            if(literal.contains(predicateWord)) {
+                literal1 = literal;
+            }
+        }
+        for(String literal: literal2s) {
+            if(literal.contains(predicateWord)) {
+                literal2 = literal;
+            }
+        }
+        String[] para1s = getParametersFromLiteral(literal1);
+        String[] para2s = getParametersFromLiteral(literal2);
+        for (int i = 0; i < para1s.length; i++) {
+                if (!para1s[i].equals(para2s[i])) {
+                    if (para1s[i].length() == 1 || para2s[i].length() == 1) {
+                        if (para1s[i].length() == 1) {
+                            subsDict.put(para1s[i], para2s[i]);
+                        } else {
+                            subsDict.put(para2s[i], para1s[i]);
+                        }
+                    } else {
+                        return "";
+                    }
+                }
+        }
+
+//        System.out.println(substitutions);
+        for (String literal: literal1s) {
+            if (getPredicateWordsFromClause(literal)[0].equals(predicateWord)) continue;
+            String[] paras = getParametersFromLiteral(literal);
             for (int i=0; i<paras.length; i++) {
-                if(substitutions.containsKey(paras[i])) {
-                    paras[i] = substitutions.get(paras[i]);
+                if(subsDict.containsKey(paras[i])) {
+                    paras[i] = subsDict.get(paras[i]);
                 }
             }
             if(sb.length() != 0) sb.append('|');
-            sb.append(getPredicatesFromClause(literal2)[0]);
+            sb.append(getPredicatesFromClause(literal)[0]);
+            sb.append('('+ String.join(",",paras) + ')');
+        }
+
+        for (String literal: literal2s) {
+            if (getPredicateWordsFromClause(literal)[0].equals(predicateWord)) continue;
+            String[] paras = getParametersFromLiteral(literal);
+            for (int i=0; i<paras.length; i++) {
+                if(subsDict.containsKey(paras[i])) {
+                    paras[i] = subsDict.get(paras[i]);
+                }
+            }
+            if(sb.length() != 0) sb.append('|');
+            sb.append(getPredicatesFromClause(literal)[0]);
             sb.append('('+ String.join(",",paras) + ')');
         }
         return sb.toString();
     }
 
-    private static String[] getParameters(String literal) {
+    private static String[] standardizeClauses(String clause1, String clause2) {
+        String[] clauses = new String[2];
+        int[] letters = new int[26];
+        String[] literal1s = clause1.split("\\|");
+        String[] literal2s = clause2.split("\\|");
+        for(String literal:literal1s) {
+            for(String para: getParametersFromLiteral(literal)) {
+                if(para.length() == 1) {
+                    letters[para.charAt(0)-'a'] = 1;
+                }
+            }
+        }
+        Map<Character, Character> subDict = new HashMap<>();
+        for (String literal:literal2s) {
+            for (String para: getParametersFromLiteral(literal)) {
+                if ( para.length() == 1 && letters[para.charAt(0)-'a'] == 1) {
+                    char c = para.charAt(0);
+                    while (letters[c-'a'] > 0) {
+                        c++;
+                        if(c - 'a' >= 26) {
+                            c-= 26;
+                        }
+                    }
+                    if(c != para.charAt(0)) {
+                        letters[para.charAt(0) - 'a'] = 2;
+                        subDict.put(para.charAt(0), c);
+                        letters[c - 'a'] = 1;
+                    }
+                }
+            }
+        }
+        clauses[0] = clause1;
+
+        if (subDict.isEmpty()) {
+            clauses[1] = clause2;
+            return clauses;
+        }
+        for (int j=0; j<literal2s.length; j++) {
+            String[] paras = getParametersFromLiteral(literal2s[j]);
+            for (int i=0; i<paras.length; i++) {
+                if (paras[i].length() == 1 && subDict.containsKey(paras[i].charAt(0))) {
+                    paras[i] = Character.toString(subDict.get(paras[i].charAt(0)));
+                }
+            }
+            literal2s[j] = getPredicatesFromClause(literal2s[j])[0] + '(' + String.join(",",paras) + ')' ;
+        }
+        clauses[1] = String.join("|", literal2s);
+        return clauses;
+    }
+
+//    private static String unifyLiteralClause(String literal, String clause) {
+//        String predicate = getPredicateWordsFromClause(literal)[0];
+//        String[] literals = clause.split("\\|");
+//        StringBuilder sb = new StringBuilder();
+//        Map<String, String> substitutions = new HashMap<>();
+//        for (String literal2 : literals) {
+//            String predicate2 = getPredicateWordsFromClause(literal2)[0];
+//            if (predicate2.equals(predicate)) {
+//                String[] paras = getParametersFromLiteral(literal);
+//                String[] para2s = getParametersFromLiteral(literal2);
+//                for (int i = 0; i < paras.length; i++) {
+//                    if (!paras[i].equals(para2s[i])) {
+//                        if (paras[i].length() == 1 || para2s[i].length() == 1) {
+//                            if (paras[i].length() == 1) {
+//                                substitutions.put(paras[i], para2s[i]);
+//                            } else {
+//                                substitutions.put(para2s[i], paras[i]);
+//                            }
+//                        } else {
+//                            return "";
+//                        }
+//
+//                    }
+//                }
+//                break;
+//            }
+//        }
+////        System.out.println(substitutions);
+//        for (String literal2: literals) {
+//            if(getPredicateWordsFromClause(literal)[0].equals(getPredicateWordsFromClause(literal2)[0])) continue;
+//            String[] paras = getParametersFromLiteral(literal2);
+//            for (int i=0; i<paras.length; i++) {
+//                if(substitutions.containsKey(paras[i])) {
+//                    paras[i] = substitutions.get(paras[i]);
+//                }
+//            }
+//            if(sb.length() != 0) sb.append('|');
+//            sb.append(getPredicatesFromClause(literal2)[0]);
+//            sb.append('('+ String.join(",",paras) + ')');
+//        }
+//        return sb.toString();
+//    }
+
+    private static String[] getParametersFromLiteral(String literal) {
         int from = literal.indexOf('(');
         int to = literal.indexOf(')');
-        return literal.substring(from+1, to).split("\\|");
+        return literal.substring(from+1, to).split(",");
     }
 
     public static boolean isLiteral(String str) {
-        return !str.contains("\\|") && !str.contains("&");
+        return str.split("\\|").length == 1;
     }
 
     public static Map<String, HashSet<String>> buildKnowledgeBase(String[] sentences) {
@@ -149,7 +288,6 @@ public class Main {
             HashSet<String> clauseSet = parseSentenceToClauses(sentence, "");
             addToKnowledgeBase(map, clauseSet);
         }
-//        System.out.println(map);
         return map;
     }
 
@@ -198,7 +336,6 @@ public class Main {
             set.addAll(parseSentenceToClauses(str.substring(2, str.length()-1), prefix));
             return set;
         }
-//        System.out.println(str);
         // remove the outermost brackets
         str = str.substring(1,str.length()-1);
         int idx = nextLevelOperatorIdx(str);
@@ -248,6 +385,7 @@ public class Main {
                 cnt --;
             }
             if(cnt == 0) {
+//                System.out.println("Next level Operator is " + str.charAt(i+1));
 //                System.out.println("Next level Operator is " + str.charAt(i+1));
                 return i + 1;
             }
