@@ -1,5 +1,6 @@
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Main {
 
@@ -13,36 +14,52 @@ public class Main {
             }
         }
         Scanner scan = new Scanner(new BufferedReader(new FileReader(fileToRead)));
-        int NQ = scan.nextInt();
+        int NQ = Integer.parseInt(scan.nextLine());
+        System.out.println(NQ);
         String[] queries = new String[NQ];
         for(int i=0; i < NQ; i++) {
             queries[i] = scan.nextLine().replaceAll("\\s+","");
+            System.out.println(queries[i]);
         }
-        int NS = scan.nextInt();
+        int NS = Integer.parseInt(scan.nextLine());
         String[] sentences = new String[NS];
+        System.out.println(NS);
         for(int j=0; j < NS; j++) {
             sentences[j] = scan.nextLine().replaceAll("\\s+","");
+            System.out.println(sentences[j]);
         }
         scan.close();
-        Main m = new Main();
-        HashMap<String, HashSet<String>> KB = m.buildKnowledgeBase(sentences);
+        HashMap<String, HashSet<String>> KB = (HashMap<String, HashSet<String>>)buildKnowledgeBase(sentences);
         PrintWriter writer = new PrintWriter(fileToWrite, "UTF-8");
         for(String query: queries) {
-            HashMap<String, HashSet<String>> KBCopy = (HashMap<String, HashSet<String>>) KB.clone();
-            if(proofByResolution(KBCopy, query)) {
+            System.out.println(KB);
+            if(proofByResolution(KBCopy(KB), query)) {
                 writer.println("TRUE");
             } else {
                 writer.println("FALSE");
             }
+//            break;
         }
         writer.close();
     }
 
-     public static Boolean proofByResolution(HashMap<String, HashSet<String>> map, String query) {
-        return unification(map, query);
+    private static Map<String, HashSet<String>> KBCopy(Map<String, HashSet<String>> map) {
+        Iterator it = map.entrySet().iterator();
+        Map<String, HashSet<String>> map2 = new HashMap<>();
+        while (it.hasNext()) {
+            Map.Entry pair = (Map.Entry)it.next();
+            HashSet<String> set = new HashSet<>();
+            set.addAll((HashSet<String>)pair.getValue());
+            map2.put((String)pair.getKey(), set);
+        }
+        return map2;
     }
 
-     public static String reverseLiteral(String literal) {
+     private static Boolean proofByResolution(Map<String, HashSet<String>> map, String query) {
+        return unification(Collections.synchronizedMap(map), query);
+     }
+
+     private static String reverseLiteral(String literal) {
         if(literal.charAt(0) == '~') {
             literal = literal.substring(1);
         } else {
@@ -51,37 +68,47 @@ public class Main {
         return literal;
     }
 
-     public static boolean unification(HashMap<String, HashSet<String>> map, String query) {
+     public static boolean unification(Map<String, HashSet<String>> map, String query) {
         Deque<String> toResolveLiterals = new LinkedList<>();
         toResolveLiterals.addLast(reverseLiteral(query));
         while(!toResolveLiterals.isEmpty()) {
             String literal = toResolveLiterals.pollFirst();
-            //find reverse literal to resolve
-            HashSet<String> oldClauses = map.get(reverseLiteral(literal));
+            //reverse literal to resolve
+            String revLiteral = reverseLiteral(literal);
+            //can't find contradictory
+            String prefix = "";
+            String key = getPredicatesFromClause(revLiteral)[0];
+
+            if(!map.containsKey(key)) return false;
+            HashSet<String> oldClauses = map.get(key);
             HashSet<String> newClauses = new HashSet<>();
+
             for(String clause: oldClauses) {
                 String newClause = unifyTwoClauses(literal, clause);
+                if(newClause.isEmpty()) return true;
                 if(isLiteral(newClause)) toResolveLiterals.add(newClause);
                 newClauses.add(newClause);
             }
+            map.remove(key);
             addToKnowledgeBase(map, newClauses);
-            removeFromKnowledgeBase(map, oldClauses);
+//            System.out.println("Resolved : " + literal);
+//            System.out.println(map);
         }
-        return true;
+        return false;
     }
 
     private static String unifyTwoClauses(String literal, String clause) {
-        String predicate = getPredicatesFromClause(literal)[0];
+        String predicate = getPredicateWordsFromClause(literal)[0];
         String[] literals = clause.split("\\|");
         StringBuilder sb = new StringBuilder();
         Map<String, String> substitutions = new HashMap<>();
         for (String literal2 : literals) {
-            String predicate2 = getPredicatesFromClause(literal2)[0];
+            String predicate2 = getPredicateWordsFromClause(literal2)[0];
             if (predicate2.equals(predicate)) {
                 String[] paras = getParameters(literal);
                 String[] para2s = getParameters(literal2);
                 for (int i = 0; i < paras.length; i++) {
-                    if (!paras[i].equals(para2s)) {
+                    if (!paras[i].equals(para2s[i])) {
                         assert paras[i].length() == 1 || para2s[i].length() == 1 : "can't unify with two constant";
                         if (paras[i].length() == 1) {
                             substitutions.put(paras[i], para2s[i]);
@@ -92,13 +119,14 @@ public class Main {
             }
         }
         for (String literal2: literals) {
-            if(literal.equals(literal2)) continue;
+            if(getPredicateWordsFromClause(literal)[0].equals(getPredicateWordsFromClause(literal2)[0])) continue;
             String[] paras = getParameters(literal2);
             for (int i=0; i<paras.length; i++) {
                 if(substitutions.containsKey(paras[i])) {
                     paras[i] = substitutions.get(paras[i]);
                 }
             }
+            if(sb.length() != 0) sb.append('|');
             sb.append(getPredicatesFromClause(literal2)[0]);
             sb.append('('+ String.join(",",paras) + ')');
         }
@@ -115,17 +143,17 @@ public class Main {
         return !str.contains("\\|") && !str.contains("&");
     }
 
-    public HashMap<String, HashSet<String>> buildKnowledgeBase(String[] sentences) {
-        HashMap<String, HashSet<String>> map = new HashMap<>();
+    public static Map<String, HashSet<String>> buildKnowledgeBase(String[] sentences) {
+        Map<String, HashSet<String>> map = new HashMap<>();
         for (String sentence : sentences) {
             HashSet<String> clauseSet = parseSentenceToClauses(sentence, "");
             addToKnowledgeBase(map, clauseSet);
         }
-        System.out.println(map);
+//        System.out.println(map);
         return map;
     }
 
-    static public void addToKnowledgeBase(HashMap<String,HashSet<String>> map, HashSet<String> clauseSet) {
+    public static void addToKnowledgeBase(Map<String,HashSet<String>> map, HashSet<String> clauseSet) {
         for (String clause : clauseSet) {
             for (String predicate : getPredicatesFromClause(clause)) {
                 String key = predicate;
@@ -139,31 +167,27 @@ public class Main {
         }
     }
 
-    static public void removeFromKnowledgeBase(HashMap<String, HashSet<String>> map, HashSet<String> oldClauses) {
-        for(String oldClause: oldClauses) {
-            for (String predicate : getPredicatesFromClause(oldClause)) {
-                String key = predicate;
-                if(map.containsKey(key)) {
-                    HashSet<String> clauseSet = map.get(key);
-                    clauseSet.remove(oldClause);
-                    map.put(key, clauseSet);
-                }
-            }
-        }
-    }
-
-    static public String[] getPredicatesFromClause(String clause) {
+    public static String[] getPredicatesFromClause(String clause) {
         String[] literals = clause.split("\\|");
         for(int i=0; i<literals.length; i++) {
-            int from = 0;
-            if(literals[i].charAt(0) == '~') from = 1;
             literals[i] = literals[i].substring(0, literals[i].indexOf('('));
         }
         return literals;
     }
 
+    public static String[] getPredicateWordsFromClause(String clause) {
+        String[] literals = clause.split("\\|");
+        for(int i=0; i<literals.length; i++) {
+            int from = 0;
+            if(literals[i].charAt(0) == '~') from = 1;
+            literals[i] = literals[i].substring(from, literals[i].indexOf('('));
+        }
+        return literals;
+    }
 
-    static public HashSet<String> parseSentenceToClauses(String str, String prefix) {
+
+
+    public static HashSet<String> parseSentenceToClauses(String str, String prefix) {
         HashSet<String> set = new HashSet<>();
         if(str.charAt(0) != '(') {
             set.add(parseLiteral(str, prefix));
@@ -174,7 +198,7 @@ public class Main {
             set.addAll(parseSentenceToClauses(str.substring(2, str.length()-1), prefix));
             return set;
         }
-        System.out.println(str);
+//        System.out.println(str);
         // remove the outermost brackets
         str = str.substring(1,str.length()-1);
         int idx = nextLevelOperatorIdx(str);
@@ -191,10 +215,10 @@ public class Main {
                     set.add(cnf1 + '|' + cnf2);
                 }
             }
-        } else if(str.charAt(idx) == '&') {
+        } else if(isClauseA || isClauseB) {
             set.addAll( parseSentenceToClauses(str.substring(0, idx), prefix));
             set.addAll( parseSentenceToClauses(str.substring(idx+1, str.length()), prefix));
-        } else if(str.charAt(idx) == '|'){
+        } else {
             HashSet<String> cnfSet1 = parseSentenceToClauses(str.substring(0, idx), prefix);
             HashSet<String> cnfSet2 = parseSentenceToClauses(str.substring(idx+1, str.length()), prefix);
             for(String cnf1:cnfSet1) {
@@ -202,8 +226,6 @@ public class Main {
                     set.add(cnf1 + '|' + cnf2);
                 }
             }
-        } else {
-            System.out.println("Illegal operator!!");
         }
         return set;
     }
@@ -211,7 +233,7 @@ public class Main {
     static public String parseLiteral(String str, String prefix) {
         assert (str.indexOf(')') == str.length() - 1);
         assert (str.indexOf('(') != -1);
-        System.out.println(str);
+//        System.out.println(str);
         return prefix + str;
     }
 
@@ -226,7 +248,7 @@ public class Main {
                 cnt --;
             }
             if(cnt == 0) {
-                System.out.println("Next level Operator is " + str.charAt(i+1));
+//                System.out.println("Next level Operator is " + str.charAt(i+1));
                 return i + 1;
             }
         }
