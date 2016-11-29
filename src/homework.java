@@ -4,6 +4,7 @@ import java.util.*;
 public class homework {
 
     public static void main(String[] args) throws FileNotFoundException, UnsupportedEncodingException {
+
         String fileToRead = "input.txt";
         String fileToWrite = "output.txt";
 
@@ -46,7 +47,7 @@ public class homework {
 
      private static Boolean proofByResolution(Map<String, Deque<String>> map, String query) {
          query = reverseLiteral(query);
-         return !unification(map, query, new HashSet<>());
+         return !unification(map, query);
      }
 
      private static String reverseLiteral(String literal) {
@@ -58,127 +59,132 @@ public class homework {
         return literal;
     }
 
-     public static boolean unification(Map<String, Deque<String>> map, String query, Set<String> explored) {
+     public static boolean unification(Map<String, Deque<String>> map, String query) {
          // can't find contradiction, then the query is true
-         if (explored.contains(query)) return true;
-         explored.add(query);
-         String queryClause = query;
-         String[] literals = queryClause.split("\\|");
-         for (int i = 0; i < literals.length; i++) {
-             String revLiteral = reverseLiteral(literals[i]);
-             String key = getPredicatesFromClause(revLiteral)[0];
-             if (!map.containsKey(key)) continue;
-             Deque<String> oldClauses = map.get(key);
-             Deque<String> newClauses = new LinkedList<>();
-             for (String clause : oldClauses) {
-                 // Found contradiction means the query is false
-                 if (isContradiction(queryClause, clause)) {
-                     System.out.println("Found contradiction: " + queryClause + " " + clause);
-                     return false;
+         Set<ClauseString> explored = new HashSet<>();
+         explored.add(new ClauseString(query));
+         Deque<String> clausesToResolve = getLiteralsFromKB(map);
+         clausesToResolve.addFirst(query);
+         union(map, query);
+         while (!clausesToResolve.isEmpty()) {
+             String queryClause = clausesToResolve.pollFirst();
+             String[] literals = queryClause.split("\\|");
+             for (int i = 0; i < literals.length; i++) {
+                 String revLiteral = reverseLiteral(literals[i]);
+                 String key = getPredicatesFromClause(revLiteral)[0];
+                 if (!map.containsKey(key)) continue;
+                 Deque<String> oldClauses = map.get(key);
+                 Deque<String> newClauses = new LinkedList<>();
+                 for (String clause : oldClauses) {
+                     // Found contradiction means the query is false
+                     if (isContradiction(queryClause, clause)) {
+                         System.out.println("Found contradiction: " + queryClause + " " + clause);
+                         return false;
+                     }
+                     String[] literal2s = clause.split("\\|");
+                     for (int j = 0; j < literal2s.length; j++) {
+                         if (!getPredicatesFromClause(literal2s[j])[0].equals(key)) continue;
+                         String newClause;
+                         newClause = binaryRefutation(queryClause, clause, i, j);
+                         newClause = factoring(newClause);
+                         ClauseString newClauseCS = new ClauseString(newClause);
+                         if (newClause.equals("") || explored.contains(newClauseCS)) {
+                             continue;
+                         }
+                         explored.add(newClauseCS);
+                         System.out.println("unify " + queryClause + " and " + clause + " is " + newClause);
+                         newClauses.add(newClause);
+                     }
                  }
-                 String newClause = unifyTwoClauses(queryClause, clause, key);
-                 // Can't prove wrong, then the query is true, should look at other ways
-                 if (newClause.equals("")) {
-                     continue;
+                 for(String newClause: newClauses) {
+                     if( newClause.split("\\|").length <= 2) {
+                         clausesToResolve.add(newClause);
+                     }
                  }
-                 newClause = factorClause(newClause);
-                 // Can't prove wrong, then the query is true. should look at other ways
-                 if (explored.contains(newClause)) {
-                     continue;
-                 }
-//                 System.out.println("unify " + queryClause + " and " + clause + " is " + newClause);
-//                 Map<String, Deque<String>> newMap = KBCopy(map);
-//                 newMap.get(key).add(newClause);
-                 if (!unification(map, newClause, explored)) {
-                     return false;
-                 }
+                 addToKnowledgeBase(map, newClauses);
              }
          }
+
          // Can't find contradiction, then the query is true;
          return true;
      }
 
-        //can't proof the reverse query wrong then the original query is false
-
+    private static Deque<String> getLiteralsFromKB(Map<String, Deque<String>> map) {
+        Deque<String> literals = new LinkedList<>();
+        Iterator it = map.entrySet().iterator();
+        while (it.hasNext())   {
+            Map.Entry pair = (Map.Entry)it.next();
+            Deque<String> deque = map.get(pair.getKey());
+            for(String clause: deque) {
+                if(isLiteral(clause)) {
+                    literals.add(clause);
+                }
+            }
+        }
+        return literals;
+    }
 
     private static boolean isContradiction(String clause1, String clause2) {
         if(!isLiteral(clause2) || !isLiteral(clause1)) return false;
-        if(!getPredicatesFromClause(clause1)[0].equals(reverseLiteral(getPredicatesFromClause(clause2)[0]))) {
+        if(!getPredicateFromLiteral(clause1).equals(reverseLiteral(getPredicateFromLiteral(clause2)))) {
            return false;
         }
-        String[] para1s = getParametersFromLiteral(clause1);
-        String[] para2s = getParametersFromLiteral(clause2);
-        for(int i=0; i<para1s.length; i++) {
-            if(!para1s[i].equals(para2s[i]) && para1s[i].length() != 1 && para2s[i].length() != 1) {
-                return false;
-            }
-        }
-        return true;
+        return !unifyTwoLiterals(clause1, reverseLiteral(clause2), new HashMap<>()).equals("");
     }
 
-    private static String unifyTwoClauses(String clause1, String clause2, String predicate) {
-//        System.out.println("Before: " + clause1 + " " + clause2);
+    private static String binaryRefutation(String clause1, String clause2, int li, int lj) {
         String[] clauses = standardizeClauses(clause1, clause2);
-//        System.out.println("After: " + clauses[0] + " " + clauses[1]);
         String[] literal1s = clauses[0].split("\\|");
         String[] literal2s = clauses[1].split("\\|");
-        StringBuilder sb = new StringBuilder();
-        Map<String, String> subsDict = new HashMap<>();
-        String literal1 = null;
-        String literal2 = null;
-        for(String literal: literal1s) {
-            if(literal.contains(reverseLiteral(predicate))) {
-                literal1 = literal;
-            }
-        }
-        for(String literal: literal2s) {
-            if(literal.contains(predicate)) {
-                literal2 = literal;
-            }
-        }
+        Map<String, String> dic = new HashMap<>();
+        String literal1 = literal1s[li];
+        String literal2 = literal2s[lj];
+
         String[] para1s = getParametersFromLiteral(literal1);
         String[] para2s = getParametersFromLiteral(literal2);
-        for (int i = 0; i < para1s.length; i++) {
-            if (!para1s[i].equals(para2s[i])) {
-                if (para1s[i].length() == 1 || para2s[i].length() == 1) {
-                    if (para1s[i].length() == 1) {
-                        subsDict.put(para1s[i], para2s[i]);
+        while(!String.join(",",para1s).equals(String.join(",", para2s))) {
+            for (int i = 0; i < para1s.length; i++) {
+                if (!para1s[i].equals(para2s[i])) {
+                    if (isVariable(para1s[i]) && isVariable(para2s[i])) {
+                        continue;
+                    } else if (isVariable(para1s[i])) {
+                        if (!dic.containsKey(para1s[i])) {
+                            dic.put(para1s[i], para2s[i]);
+                        }
+                    } else if (isVariable(para2s[i])) {
+                        if (!dic.containsKey(para2s[i])) {
+                            dic.put(para2s[i], para1s[i]);
+                        }
                     } else {
-                        subsDict.put(para2s[i], para1s[i]);
+                        return "";
                     }
-                } else {
-                    return "";
+                }
+            }
+            for (int i = 0; i < para1s.length; i++) {
+                if (dic.containsKey(para1s[i])) {
+                    para1s[i] = dic.get(para1s[i]);
+                }
+                if (dic.containsKey(para2s[i])) {
+                    para2s[i] = dic.get(para2s[i]);
+                }
+                if (!para1s[i].equals(para2s[i]) && isVariable(para1s[i]) && isVariable(para2s[i])) {
+                    dic.put(para1s[i], para2s[i]);
+                    para1s[i] = para2s[i];
                 }
             }
         }
+//        System.out.println(clauses[0] + " " + clauses[1]);
 
-//        System.out.println(substitutions);
-        for (String literal: literal1s) {
-            if (literal.equals(literal1)) continue;
-            String[] paras = getParametersFromLiteral(literal);
-            for (int i=0; i<paras.length; i++) {
-                if(subsDict.containsKey(paras[i])) {
-                    paras[i] = subsDict.get(paras[i]);
-                }
-            }
-            if(sb.length() != 0) sb.append('|');
-            sb.append(getPredicatesFromClause(literal)[0]);
-            sb.append('('+ String.join(",",paras) + ')');
-        }
+        String temp1 = substitution(clauses[0], li, dic);
+        String temp2 = substitution(clauses[1], lj, dic);
+        if(temp1.equals("")) return temp2;
+        if(temp2.equals("")) return temp1;
+        return temp1 + "|" + temp2;
 
-        for (String literal: literal2s) {
-            if (literal.equals(literal2)) continue;
-            String[] paras = getParametersFromLiteral(literal);
-            for (int i=0; i<paras.length; i++) {
-                if(subsDict.containsKey(paras[i])) {
-                    paras[i] = subsDict.get(paras[i]);
-                }
-            }
-            if(sb.length() != 0) sb.append('|');
-            sb.append(getPredicatesFromClause(literal)[0]);
-            sb.append('('+ String.join(",",paras) + ')');
-        }
-        return sb.toString();
+    }
+
+    private static boolean isVariable(String para) {
+        return para.length() == 1 && Character.isLowerCase(para.charAt(0));
     }
 
     private static String[] standardizeClauses(String clause1, String clause2) {
@@ -188,7 +194,7 @@ public class homework {
         String[] literal2s = clause2.split("\\|");
         for(String literal:literal1s) {
             for(String para: getParametersFromLiteral(literal)) {
-                if(para.length() == 1) {
+                if(isVariable(para)) {
                     letters[para.charAt(0)-'a'] = 1;
                 }
             }
@@ -196,7 +202,7 @@ public class homework {
         Map<Character, Character> subDict = new HashMap<>();
         for (String literal:literal2s) {
             for (String para: getParametersFromLiteral(literal)) {
-                if ( para.length() == 1 && letters[para.charAt(0)-'a'] == 1) {
+                if ( isVariable(para) && letters[para.charAt(0)-'a'] == 1) {
                     char c = para.charAt(0);
                     while (letters[c-'a'] > 0) {
                         c++;
@@ -221,7 +227,7 @@ public class homework {
         for (int j=0; j<literal2s.length; j++) {
             String[] paras = getParametersFromLiteral(literal2s[j]);
             for (int i=0; i<paras.length; i++) {
-                if (paras[i].length() == 1 && subDict.containsKey(paras[i].charAt(0))) {
+                if (isVariable(paras[i]) && subDict.containsKey(paras[i].charAt(0))) {
                     paras[i] = Character.toString(subDict.get(paras[i].charAt(0)));
                 }
             }
@@ -241,26 +247,34 @@ public class homework {
         return str.split("\\|").length == 1;
     }
 
+    private static String appendLiteral(String clause, String literal) {
+        if(clause.equals("")) return literal;
+        return clause + "|" + literal;
+    }
+
     private static Map<String, Deque<String>> buildKnowledgeBase(String[] sentences) {
         Map<String, Deque<String>> map = new HashMap<>();
         for (String sentence : sentences) {
             HashSet<String> clauseSet = parseSentenceToClauses(sentence, "");
-            Deque<String> deque = new LinkedList<>(clauseSet);
-            addToKnowledgeBase(map, deque);
+            addToKnowledgeBase(map, new LinkedList<>(clauseSet));
         }
         return map;
     }
 
-    private static void addToKnowledgeBase(Map<String,Deque<String>> map, Deque<String> clauses) {
+    private static void addToKnowledgeBase(Map<String, Deque<String>> map, Deque<String> clauses) {
         for (String clause : clauses) {
-            for (String predicate : getPredicatesFromClause(clause)) {
-                String key = predicate;
-                if (!map.containsKey(key)) {
-                    map.put(key, new LinkedList<String>());
-                }
-                Deque<String> clauses2 = map.get(key);
-                clauses2.addLast(clause);
+            union(map, clause);
+        }
+    }
+
+    private static void union(Map<String, Deque<String>> map, String clause) {
+        for (String predicate :getPredicatesFromClause(clause)) {
+            String key = predicate;
+            if (!map.containsKey(key)) {
+                map.put(key, new LinkedList<>());
             }
+            Deque<String> clauses = map.get(key);
+            clauses.add(clause);
         }
     }
 
@@ -271,18 +285,6 @@ public class homework {
         }
         return literals;
     }
-
-    public static String[] getPredicateWordsFromClause(String clause) {
-        String[] literals = clause.split("\\|");
-        for(int i=0; i<literals.length; i++) {
-            int from = 0;
-            if(literals[i].charAt(0) == '~') from = 1;
-            literals[i] = literals[i].substring(from, literals[i].indexOf('('));
-        }
-        return literals;
-    }
-
-
 
     public static HashSet<String> parseSentenceToClauses(String str, String prefix) {
         HashSet<String> set = new HashSet<>();
@@ -318,7 +320,7 @@ public class homework {
             HashSet<String> cnfSet1 = parseSentenceToClauses(str.substring(0, idx), prefix);
             HashSet<String> cnfSet2 = parseSentenceToClauses(str.substring(idx+1, str.length()), prefix);
             for(String cnf1:cnfSet1) {
-                for(String cnf2:cnfSet2) {
+                for(String cnf2: cnfSet2) {
                     set.add(cnf1 + '|' + cnf2);
                 }
             }
@@ -332,45 +334,84 @@ public class homework {
         return prefix + str;
     }
 
-    public static String factorClause(String clause) {
+    public static String factoring(String clause) {
+        if (clause.equals("")) return clause;
         String[] predicates = getPredicatesFromClause(clause);
-
         String[] literals = clause.split("\\|");
-
-        for(int i=0; i<predicates.length; i++) {
-            for(int j=i+1; j<predicates.length; j++) {
-                if(predicates[i].equals(predicates[j]) && !predicates[i].equals("")) {
-                    Boolean didUnify = true;
-                    String[] para1s = getParametersFromLiteral(literals[i]);
-                    String[] para2s = getParametersFromLiteral(literals[j]);
-                    for (int k = 0; k < para1s.length; k++) {
-                        if (!para1s[k].equals(para2s[k])) {
-                            if (para1s[k].length() == 1 || para2s[k].length() == 1) {
-                                if (para1s[k].length() == 1) {
-                                    para1s[k] = para2s[k];
-                                }
-                            } else {
-                                didUnify = false;
-                                break;
-                            }
-                        }
-                    }
-                    if(didUnify) {
-                        literals[i] = predicates[i] + "(" + String.join(",", para1s) + ")";
-                        literals[j] = "";
-                        predicates[j] = "";
+        HashMap<String, String> dic = new HashMap<>();
+        for (int i = 0; i < predicates.length; i++) {
+            for (int j = i + 1; j < predicates.length; j++) {
+                if (predicates[i].equals(predicates[j])) {
+                    String newLiteral = unifyTwoLiterals(literals[i], literals[j], dic);
+                    if ( !newLiteral.equals("") ) {
+                        return factoring(substitution(clause, j, dic));
                     }
                 }
             }
         }
+        return clause;
+    }
+
+    public static String substitution(String clause, int idx, Map<String, String> dic) {
+        String[] literals = clause.split("\\|");
         StringBuilder sb = new StringBuilder();
-        for(String literal: literals) {
-            if(sb.length() != 0 && !literal.equals("")) {
-                sb.append("|");
+        for (int i=0; i<literals.length; i++) {
+            if ( i == idx ) { continue; }
+            String[] paras = getParametersFromLiteral(literals[i]);
+            for (int j=0; j<paras.length; j++) {
+                if (dic.containsKey(paras[j])) {
+                    paras[j] = dic.get(paras[j]);
+                }
             }
-            sb.append(literal);
+            if(sb.length() != 0) sb.append('|');
+            sb.append(getPredicateFromLiteral(literals[i]));
+            sb.append('('+ String.join(",",paras) + ')');
         }
         return sb.toString();
+    }
+
+    public static String unifyTwoLiterals(String literal1, String literal2, Map<String, String> dic) {
+        if (!getPredicateFromLiteral(literal1).equals(getPredicateFromLiteral(literal2))) return "";
+        String[] para1s = getParametersFromLiteral(literal1);
+        String[] para2s = getParametersFromLiteral(literal2);
+        while(!String.join(",",para1s).equals(String.join(",", para2s))) {
+            for (int i = 0; i < para1s.length; i++) {
+                if (!para1s[i].equals(para2s[i])) {
+                    if (isVariable(para1s[i]) && isVariable(para2s[i])) {
+                        continue;
+                    } else if (isVariable(para1s[i])) {
+                        if (!dic.containsKey(para1s[i])) {
+                            dic.put(para1s[i], para2s[i]);
+                        }
+                    } else if (isVariable(para2s[i])) {
+                        if (!dic.containsKey(para2s[i])) {
+                            dic.put(para2s[i], para1s[i]);
+                        }
+                    } else {
+                        return "";
+                    }
+                }
+            }
+            for (int i = 0; i < para1s.length; i++) {
+                if (dic.containsKey(para1s[i])) {
+                    para1s[i] = dic.get(para1s[i]);
+                }
+                if (dic.containsKey(para2s[i])) {
+                    para2s[i] = dic.get(para2s[i]);
+                }
+                if (!para1s[i].equals(para2s[i]) && isVariable(para1s[i]) && isVariable(para2s[i])) {
+                    dic.put(para1s[i], para2s[i]);
+                }
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(getPredicateFromLiteral(literal1));
+        sb.append("(" + String.join(",", para1s) + ")");
+        return sb.toString();
+    }
+
+    public static String getPredicateFromLiteral(String literal) {
+        return literal.substring(0, literal.indexOf('('));
     }
 
     public static int nextLevelOperatorIdx(String str) {
@@ -389,5 +430,90 @@ public class homework {
             }
         }
         return -1;
+    }
+}
+
+class ClauseString {
+    String str;
+
+    public ClauseString(String str) {
+        this.str = str;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (!(obj instanceof ClauseString)) {
+            return false;
+        }
+        ClauseString that = (ClauseString) obj;
+        String[] literal1s = this.str.split("\\|");
+        Arrays.sort(literal1s);
+        String[] literal2s = that.str.split("\\|");
+        Arrays.sort(literal2s);
+        if (literal1s.length != literal2s.length) return false;
+        HashMap<Character,Character> dic = new HashMap<>();
+        for (int i = 0; i < literal1s.length; i++) {
+            if (!literal1s[i].equals(literal2s[i])) {
+                if (getPredicatesFromClause(literal1s[i])[0].equals(getPredicatesFromClause(literal2s[i])[0])) {
+                    String[] para1s = getParametersFromLiteral(literal1s[i]);
+                    String[] para2s = getParametersFromLiteral(literal2s[i]);
+                    for (int j = 0; j < para1s.length; j++) {
+                        if (!para1s[j].equals(para2s[j])) {
+                            if (!isVariable(para1s[j]) || !isVariable(para2s[j])) {
+                                return false;
+                            } else {
+                                if(!dic.containsKey(para2s[j].charAt(0))) {
+                                    dic.put(para2s[j].charAt(0), para1s[j].charAt(0));
+                                }
+                                para2s[j] = Character.toString(dic.get(para2s[j].charAt(0)));
+                            }
+                        }
+                    }
+                    if(!String.join(",", para1s).equals(String.join(",",para2s))) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public int hashCode() {
+        String[] literals = this.str.split("\\|");
+        Arrays.sort(literals);
+        List<String> anyStringList = new ArrayList<>();
+        for(String literal: literals) {
+            anyStringList.add(getPredicatesFromClause(literal)[0]);
+            String[] paras = getParametersFromLiteral(literal);
+            for(String para: paras) {
+                if(isVariable(para)) {
+                    anyStringList.add("var");
+                } else {
+                    anyStringList.add(para);
+                }
+            }
+        }
+        return Arrays.hashCode(anyStringList.toArray());
+    }
+
+    private static String[] getPredicatesFromClause(String clause) {
+        String[] literals = clause.split("\\|");
+        for(int i=0; i<literals.length; i++) {
+            literals[i] = literals[i].substring(0, literals[i].indexOf('('));
+        }
+        return literals;
+    }
+
+    private static boolean isVariable(String para) {
+        return para.length() == 1 && Character.isLowerCase(para.charAt(0));
+    }
+
+    private static String[] getParametersFromLiteral(String literal) {
+        int from = literal.indexOf('(');
+        int to = literal.indexOf(')');
+        return literal.substring(from+1, to).split(",");
     }
 }
