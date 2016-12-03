@@ -4,7 +4,7 @@
 import os
 import time
 
-caseFolder = "testcase"
+caseFolder = "testcases"
 num = 32
 os.system('rm -rf results')
 os.system('mkdir -p results')
@@ -20,6 +20,6 @@ for i in xrange(1,num+1):
     os.system('diff ./output.txt ./%s/output{0}.txt'.format(i) %caseFolder)
     os.system('mv ./output.txt ./results/output{0}.txt'.format(i))
 
-os.system('rm *.txt > /dev/null')
+# os.system('rm *.txt > /dev/null')
 os.system('rm *.java > /dev/null')
 os.system('rm *.class > /dev/null');

@@ -8,6 +8,7 @@ public class homework {
         String fileToRead = "input.txt";
         String fileToWrite = "output.txt";
 
+//        System.out.println(factoring("Score(x,y,s)|Score(w,t,s)"));
         Scanner scan = new Scanner(new BufferedReader(new FileReader(fileToRead)));
         int NQ = Integer.parseInt(scan.nextLine().trim());
         String[] queries = new String[NQ];
@@ -20,17 +21,26 @@ public class homework {
             sentences[j] = scan.nextLine().replaceAll("\\s+","");
         }
         scan.close();
-        HashMap<String, Deque<String>> KB = (HashMap<String, Deque<String>>)buildKnowledgeBase(sentences);
+        Set<ClauseString> explored = new HashSet<>();
+        HashMap<String, Deque<String>> KB = (HashMap<String, Deque<String>>)buildKnowledgeBase(sentences, explored);
         PrintWriter writer = new PrintWriter(fileToWrite, "UTF-8");
         for(String query: queries) {
             System.out.println(KB);
-            if(proofByResolution(KBCopy(KB), query)) {
+            if(proofByResolution(KBCopy(KB), query, exploredCopy(explored))) {
                 writer.println("TRUE");
             } else {
                 writer.println("FALSE");
             }
         }
         writer.close();
+    }
+
+    private static Set<ClauseString> exploredCopy(Set<ClauseString> set) {
+        Set<ClauseString> explored = new HashSet<>();
+        for(ClauseString cs: set) {
+            explored.add(new ClauseString(cs.str));
+        }
+        return explored;
     }
 
     private static Map<String, Deque<String>> KBCopy(Map<String, Deque<String>> map) {
@@ -45,9 +55,9 @@ public class homework {
         return map2;
     }
 
-     private static Boolean proofByResolution(Map<String, Deque<String>> map, String query) {
+     private static Boolean proofByResolution(Map<String, Deque<String>> map, String query, Set<ClauseString> set) {
          query = reverseLiteral(query);
-         return !unification(map, query);
+         return !unification(map, query, set);
      }
 
      private static String reverseLiteral(String literal) {
@@ -59,17 +69,15 @@ public class homework {
         return literal;
     }
 
-     private static boolean unification(Map<String, Deque<String>> map, String query) {
-         // can't find contradiction, then the query is true
-         Set<ClauseString> explored = new HashSet<>();
+     private static boolean unification(Map<String, Deque<String>> map, String query, Set<ClauseString> explored) {
          explored.add(new ClauseString(query));
          Deque<String> clausesToResolve = getLiteralsFromKB(map);
          clausesToResolve.addFirst(query);
          union(map, query);
          long start = System.currentTimeMillis();
          long end = start + 20 * 1000; // 20 seconds * 1000 ms/sec
-//         while (!clausesToResolve.isEmpty() && System.currentTimeMillis() < end) {
-         while (!clausesToResolve.isEmpty() && clausesToResolve.size() <= 10000 && System.currentTimeMillis() < end) {
+//         while (!clausesToResolve.isEmpty() && clausesToResolve.size() <= 10000 && System.currentTimeMillis() < end) {
+         while (!clausesToResolve.isEmpty()) {
              String queryClause = clausesToResolve.pollFirst();
              String[] literals = queryClause.split("\\|");
              for (int i = 0; i < literals.length; i++) {
@@ -95,16 +103,15 @@ public class homework {
                              continue;
                          }
                          explored.add(newClauseCS);
-//                         System.out.println("unify " + queryClause + " and " + clause + " is " + newClause);
+                         System.out.println("Unify " + queryClause + " and " + clause + " is " + newClause);
                          newClauses.add(newClause);
                      }
                  }
-//                 for(String newClause: newClauses) {
-//                     if(newClause.split("\\|").length <= 2) {
-//                         clausesToResolve.add(newClause);
-//                     }
-//                 }
-                 clausesToResolve.addAll(newClauses);
+                 for(String newClause: newClauses) {
+                     if(newClause.split("\\|").length <=1) {
+                         clausesToResolve.add(newClause);
+                     }
+                 }
                  addToKnowledgeBase(map, newClauses);
              }
          }
@@ -154,7 +161,7 @@ public class homework {
         return para.length() == 1 && Character.isLowerCase(para.charAt(0));
     }
 
-    private static String[] standardizeClauses(String clause1, String clause2) {
+    public static String[] standardizeClauses(String clause1, String clause2) {
         String[] clauses = new String[2];
         int[] letters = new int[26];
         String[] literal1s = clause1.split("\\|");
@@ -219,11 +226,15 @@ public class homework {
         return clause + "|" + literal;
     }
 
-    private static Map<String, Deque<String>> buildKnowledgeBase(String[] sentences) {
+    private static Map<String, Deque<String>> buildKnowledgeBase(String[] sentences, Set<ClauseString> explored) {
         Map<String, Deque<String>> map = new HashMap<>();
         for (String sentence : sentences) {
             HashSet<String> clauseSet = parseSentenceToClauses(sentence, "");
-            addToKnowledgeBase(map, new LinkedList<>(clauseSet));
+            for(String s: clauseSet) {
+                String newClause = factoring(s);
+                explored.add(new ClauseString(s));
+                union(map, newClause);
+            }
         }
         return map;
     }
@@ -299,11 +310,22 @@ public class homework {
         String[] literals = clause.split("\\|");
         HashMap<String, String> dic = new HashMap<>();
         for (int i = 0; i < literals.length; i++) {
+            if (i!=0 && !getPredicateFromLiteral(literals[i]).equals(getPredicateFromLiteral(literals[i-1]))) {
+                return clause;
+            }
+        }
+        for (int i = 0; i < literals.length; i++) {
             for (int j = i + 1; j < literals.length; j++) {
                 if (getPredicateFromLiteral(literals[i]).equals(getPredicateFromLiteral(literals[j]))) {
                     String newLiteral = unifyTwoLiterals(literals[i], literals[j], dic);
+                    Map<String, String> newDic = new HashMap<>();
+                    Iterator it = dic.entrySet().iterator();
+                    while (it.hasNext()) {
+                        Map.Entry pair = (Map.Entry) it.next();
+                        newDic.put((String) pair.getValue(), (String) pair.getKey());
+                    }
                     if ( !newLiteral.equals("") ) {
-                        return factoring(substitution(clause, j, dic));
+                        return factoring(substitution(clause, j, newDic));
                     }
                 }
             }
@@ -405,33 +427,34 @@ class ClauseString {
             return false;
         }
         ClauseString that = (ClauseString) obj;
-        String[] literal1s = this.str.split("\\|");
-        Arrays.sort(literal1s);
-        String[] literal2s = that.str.split("\\|");
-        Arrays.sort(literal2s);
+        String[] strs = homework.standardizeClauses(this.str, that.str);
+        String[] literal1s = strs[0].split("\\|");
+        Map<String, String[]> map = new HashMap<>();
+        for (String literal : literal1s) {
+            String predicate = getPredicateFromLiteral(literal);
+            map.put(predicate, getParametersFromLiteral(literal));
+        }
+        String[] literal2s = strs[1].split("\\|");
         if (literal1s.length != literal2s.length) return false;
-        HashMap<Character,Character> dic = new HashMap<>();
-        for (int i = 0; i < literal1s.length; i++) {
-            if (!literal1s[i].equals(literal2s[i])) {
-                if (getPredicateFromLiteral(literal1s[i]).equals(getPredicateFromLiteral(literal2s[i]))) {
-                    String[] para1s = getParametersFromLiteral(literal1s[i]);
-                    String[] para2s = getParametersFromLiteral(literal2s[i]);
-                    for (int j = 0; j < para1s.length; j++) {
-                        if (!para1s[j].equals(para2s[j])) {
-                            if (!isVariable(para1s[j]) || !isVariable(para2s[j])) {
-                                return false;
-                            } else {
-                                if(!dic.containsKey(para2s[j].charAt(0))) {
-                                    dic.put(para2s[j].charAt(0), para1s[j].charAt(0));
-                                }
-                                para2s[j] = Character.toString(dic.get(para2s[j].charAt(0)));
-                            }
-                        }
-                    }
-                    if(!String.join(",", para1s).equals(String.join(",",para2s))) {
+        HashMap<Character, Character> dic = new HashMap<>();
+        for (String literal : literal2s) {
+            String predicate = getPredicateFromLiteral(literal);
+            if (!map.containsKey(predicate)) return false;
+            String[] para1s = getParametersFromLiteral(literal);
+            String[] para2s = getParametersFromLiteral(literal);
+            if (para1s.length != para2s.length) return false;
+            for (int j = 0; j < para1s.length; j++) {
+                if (!para1s[j].equals(para2s[j])) {
+                    if (!isVariable(para1s[j]) || !isVariable(para2s[j])) {
                         return false;
+                    } else {
+                        if (!dic.containsKey(para2s[j].charAt(0))) {
+                            dic.put(para2s[j].charAt(0), para1s[j].charAt(0));
+                        }
+                        para2s[j] = Character.toString(dic.get(para2s[j].charAt(0)));
                     }
-                } else {
+                }
+                if (!String.join(",", para1s).equals(String.join(",", para2s))) {
                     return false;
                 }
             }
@@ -441,18 +464,30 @@ class ClauseString {
 
     @Override
     public int hashCode() {
+        HashMap<Character, Character> dic = new HashMap<>();
         String[] literals = this.str.split("\\|");
-        Arrays.sort(literals);
+        Map<String, String[]> map = new HashMap<>();
+        for (String literal : literals) {
+            String predicate = getPredicateFromLiteral(literal);
+            map.put(predicate, getParametersFromLiteral(literal));
+        }
+        Iterator it = map.entrySet().iterator();
         List<String> anyStringList = new ArrayList<>();
-        for(String literal: literals) {
-            anyStringList.add(getPredicateFromLiteral(literal));
-            String[] paras = getParametersFromLiteral(literal);
-            for(String para: paras) {
-                if(isVariable(para)) {
-                    anyStringList.add("var");
-                } else {
-                    anyStringList.add(para);
+        Character var = 'a';
+        while (it.hasNext()) {
+            Map.Entry pair = (Map.Entry)it.next();
+            anyStringList.add((String) pair.getKey());
+            String[] paras = (String[])pair.getValue();
+            anyStringList.add(Integer.toString(paras.length));
+            for (String para: paras) {
+                String temp = para;
+                if (isVariable(para)) {
+                    if (!dic.containsKey(para.charAt(0))) {
+                        dic.put(para.charAt(0), var++);
+                    }
+                    temp = Character.toString(dic.get(para.charAt(0)));
                 }
+                anyStringList.add(temp);
             }
         }
         return Arrays.hashCode(anyStringList.toArray());
